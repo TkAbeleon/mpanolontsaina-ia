@@ -118,9 +118,9 @@ async def health_check() -> JSONResponse:
 
 
 # --------------------------------------------------------------------------- #
-# Montage des routeurs (à décommenter au fur et à mesure du développement)
+# Montage des routeurs
 # --------------------------------------------------------------------------- #
-# from app.routers import auth, users, chat
-# app.include_router(auth.router,  prefix="/api/v1/auth",  tags=["Authentification"])
-# app.include_router(users.router, prefix="/api/v1/users", tags=["Utilisateurs"])
-# app.include_router(chat.router,  prefix="/api/v1/chat",  tags=["Chat"])
+from app.routers import auth, users, chat
+app.include_router(auth.router, prefix="", tags=["Authentification"])
+app.include_router(users.router, prefix="", tags=["Utilisateurs"])
+app.include_router(chat.router, prefix="", tags=["Chat"])

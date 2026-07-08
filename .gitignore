@@ -1,45 +1,53 @@
-# See https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
+# Environnement virtuel Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+*.egg-info/
+dist/
+build/
 
-# compiled output
-dist
-tmp
-out-tsc
-*.tsbuildinfo
-.expo
-.expo-shared
+# Fichiers de configuration locale
+.env
+.env.local
+.env.*.local
 
-# dependencies
-node_modules
+# Google Cloud service account keys
+*.json
 
-# IDEs and editors
-/.idea
-.project
-.classpath
-.c9/
-*.launch
-.settings/
-*.sublime-workspace
+# Base de données locale
+*.db
+*.sqlite
+*.sqlite3
 
-# IDE - VSCode
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
+# ChromaDB persistée
+chroma_data/
 
-# misc
-/.sass-cache
-/connect.lock
-/coverage
-/libpeerconnection.log
-npm-debug.log
-yarn-error.log
-testem.log
-/typings
+# Logs
+*.log
+server.log
 
-# System Files
+# IDEs et éditeurs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
 .DS_Store
 Thumbs.db
 
-.cursor/rules/nx-rules.mdc
-.github/instructions/nx.instructions.md
+# Tests et coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Alembic migrations (optionnel si on veut versionner les migrations,
+# mais si on utilise alembic init, on peut garder les versions)
+# alembic/versions/*.pyc

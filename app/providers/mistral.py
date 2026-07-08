@@ -6,8 +6,7 @@ Référence : 05_guide_switch_provider_mistral_vertex.md §4.
 """
 
 from typing import List
-
-from mistralai import Mistral
+import httpx
 
 from app.core.config import settings
 from app.providers.base import LLMProvider
@@ -23,7 +22,8 @@ class MistralProvider(LLMProvider):
     """
 
     def __init__(self) -> None:
-        self._client = Mistral(api_key=settings.MISTRAL_API_KEY)
+        self._api_key = settings.MISTRAL_API_KEY
+        self._base_url = "https://api.mistral.ai/v1"
         self._chat_model: str = settings.MISTRAL_CHAT_MODEL
         self._embed_model: str = settings.MISTRAL_EMBED_MODEL
 
@@ -41,16 +41,25 @@ class MistralProvider(LLMProvider):
         Appelle l'API de complétion de chat Mistral avec un message système
         et un message utilisateur, et retourne le contenu textuel de la réponse.
         """
-        response = self._client.chat.complete(
-            model=self._chat_model,
-            messages=[
+        url = f"{self._base_url}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self._chat_model,
+            "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
-        return response.choices[0].message.content
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        with httpx.Client(timeout=60.0) as client:
+            response = client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            return data["choices"][0]["message"]["content"]
 
     # ---------------------------------------------------------------------- #
     # Génération d'embeddings (RAG / ChromaDB)
@@ -64,8 +73,17 @@ class MistralProvider(LLMProvider):
         malagasy sont moindres que text-multilingual-embedding-002 de Vertex AI
         (cf. 05_guide_switch_provider_mistral_vertex.md §9).
         """
-        result = self._client.embeddings.create(
-            model=self._embed_model,
-            inputs=texts,
-        )
-        return [item.embedding for item in result.data]
+        url = f"{self._base_url}/embeddings"
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self._embed_model,
+            "input": texts,
+        }
+        with httpx.Client(timeout=60.0) as client:
+            response = client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            return [item["embedding"] for item in data["data"]]
