@@ -6,6 +6,7 @@ Référence : 05_guide_switch_provider_mistral_vertex.md §5
             04_guide_implementation_vertex_ai.md §2
 """
 
+import asyncio
 from typing import List
 
 from app.core.config import settings
@@ -39,7 +40,7 @@ class VertexAIProvider(LLMProvider):
         self._embed_model: str = settings.GEMINI_EMBEDDING_MODEL
 
     # ---------------------------------------------------------------------- #
-    # Génération de texte
+    # Génération de texte — synchrone
     # ---------------------------------------------------------------------- #
     def generate(
         self,
@@ -88,7 +89,24 @@ class VertexAIProvider(LLMProvider):
         return "\n".join(parts_texts) if parts_texts else ""
 
     # ---------------------------------------------------------------------- #
-    # Génération d'embeddings (RAG / ChromaDB multilingue)
+    # Génération de texte — async (via asyncio.to_thread)
+    # Le SDK google-genai n'expose pas encore de client async natif stable ;
+    # on délègue au thread pool pour ne pas bloquer l'event loop.
+    # ---------------------------------------------------------------------- #
+    async def agenerate(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.2,
+        max_tokens: int = 1024,
+    ) -> str:
+        """Version async de generate() via asyncio.to_thread."""
+        return await asyncio.to_thread(
+            self.generate, system_prompt, user_prompt, temperature, max_tokens
+        )
+
+    # ---------------------------------------------------------------------- #
+    # Génération d'embeddings — synchrone (RAG / ChromaDB multilingue)
     # ---------------------------------------------------------------------- #
     def embed(self, texts: List[str]) -> List[List[float]]:
         """
@@ -105,3 +123,10 @@ class VertexAIProvider(LLMProvider):
             contents=texts,
         )
         return [e.values for e in result.embeddings]
+
+    # ---------------------------------------------------------------------- #
+    # Génération d'embeddings — async (via asyncio.to_thread)
+    # ---------------------------------------------------------------------- #
+    async def aembed(self, texts: List[str]) -> List[List[float]]:
+        """Version async de embed() via asyncio.to_thread."""
+        return await asyncio.to_thread(self.embed, texts)

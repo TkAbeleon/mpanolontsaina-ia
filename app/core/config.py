@@ -83,6 +83,9 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "GCP_PROJECT_ID est obligatoire lorsque LLM_PROVIDER=vertex."
                 )
+            if self.GOOGLE_APPLICATION_CREDENTIALS:
+                import os
+                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = self.GOOGLE_APPLICATION_CREDENTIALS
         return self
 
 

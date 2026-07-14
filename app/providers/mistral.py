@@ -6,6 +6,7 @@ Référence : 05_guide_switch_provider_mistral_vertex.md §4.
 """
 
 from typing import List
+
 import httpx
 
 from app.core.config import settings
@@ -19,6 +20,8 @@ class MistralProvider(LLMProvider):
     Modèles utilisés (configurables via .env) :
       - Génération  : MISTRAL_CHAT_MODEL  (défaut : mistral-large-latest)
       - Embeddings  : MISTRAL_EMBED_MODEL (défaut : mistral-embed)
+
+    Utilise httpx en mode synchrone et async pour ne pas bloquer l'event loop.
     """
 
     def __init__(self) -> None:
@@ -27,8 +30,34 @@ class MistralProvider(LLMProvider):
         self._chat_model: str = settings.MISTRAL_CHAT_MODEL
         self._embed_model: str = settings.MISTRAL_EMBED_MODEL
 
+    def _chat_payload(self, system_prompt: str, user_prompt: str, temperature: float, max_tokens: int) -> dict:
+        """Construit le payload pour l'API de complétion de chat."""
+        return {
+            "model": self._chat_model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+
+    def _embed_payload(self, texts: List[str]) -> dict:
+        """Construit le payload pour l'API d'embeddings."""
+        return {
+            "model": self._embed_model,
+            "input": texts,
+        }
+
+    @property
+    def _headers(self) -> dict:
+        return {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+
     # ---------------------------------------------------------------------- #
-    # Génération de texte
+    # Génération de texte — synchrone
     # ---------------------------------------------------------------------- #
     def generate(
         self,
@@ -38,52 +67,69 @@ class MistralProvider(LLMProvider):
         max_tokens: int = 1024,
     ) -> str:
         """
-        Appelle l'API de complétion de chat Mistral avec un message système
-        et un message utilisateur, et retourne le contenu textuel de la réponse.
+        Appelle l'API de complétion de chat Mistral (synchrone).
         """
         url = f"{self._base_url}/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {self._api_key}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "model": self._chat_model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        }
-        with httpx.Client(timeout=60.0) as client:
-            response = client.post(url, headers=headers, json=payload)
+        payload = self._chat_payload(system_prompt, user_prompt, temperature, max_tokens)
+        with httpx.Client(timeout=90.0) as client:
+            response = client.post(url, headers=self._headers, json=payload)
             response.raise_for_status()
             data = response.json()
             return data["choices"][0]["message"]["content"]
 
     # ---------------------------------------------------------------------- #
-    # Génération d'embeddings (RAG / ChromaDB)
+    # Génération de texte — async native (httpx.AsyncClient)
+    # ---------------------------------------------------------------------- #
+    async def agenerate(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.2,
+        max_tokens: int = 1024,
+    ) -> str:
+        """
+        Appelle l'API de complétion de chat Mistral de façon asynchrone.
+        Utilise httpx.AsyncClient pour ne pas bloquer l'event loop FastAPI/LangGraph.
+        """
+        url = f"{self._base_url}/chat/completions"
+        payload = self._chat_payload(system_prompt, user_prompt, temperature, max_tokens)
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            response = await client.post(url, headers=self._headers, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            return data["choices"][0]["message"]["content"]
+
+    # ---------------------------------------------------------------------- #
+    # Génération d'embeddings — synchrone
     # ---------------------------------------------------------------------- #
     def embed(self, texts: List[str]) -> List[List[float]]:
         """
-        Génère les vecteurs d'embedding pour une liste de textes via l'API
-        Mistral Embeddings. Utilisé par SwitchableEmbeddingFunction pour ChromaDB.
+        Génère les vecteurs d'embedding (synchrone).
+        Utilisé par SwitchableEmbeddingFunction pour ChromaDB.
 
         Note : mistral-embed est un modèle généraliste ; les performances sur le
         malagasy sont moindres que text-multilingual-embedding-002 de Vertex AI
         (cf. 05_guide_switch_provider_mistral_vertex.md §9).
         """
         url = f"{self._base_url}/embeddings"
-        headers = {
-            "Authorization": f"Bearer {self._api_key}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "model": self._embed_model,
-            "input": texts,
-        }
+        payload = self._embed_payload(texts)
         with httpx.Client(timeout=60.0) as client:
-            response = client.post(url, headers=headers, json=payload)
+            response = client.post(url, headers=self._headers, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            return [item["embedding"] for item in data["data"]]
+
+    # ---------------------------------------------------------------------- #
+    # Génération d'embeddings — async native
+    # ---------------------------------------------------------------------- #
+    async def aembed(self, texts: List[str]) -> List[List[float]]:
+        """
+        Génère les vecteurs d'embedding de façon asynchrone.
+        """
+        url = f"{self._base_url}/embeddings"
+        payload = self._embed_payload(texts)
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(url, headers=self._headers, json=payload)
             response.raise_for_status()
             data = response.json()
             return [item["embedding"] for item in data["data"]]

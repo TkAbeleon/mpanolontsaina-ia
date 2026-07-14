@@ -2,6 +2,8 @@
 Graphe LangGraph compilé (singleton) pour l'assistant juridique multi-agents.
 Référence : 03_contrats_api_chat.md §7
 """
+import logging
+
 from langgraph.graph import END, StateGraph
 
 from app.agents.nodes import (
@@ -16,15 +18,17 @@ from app.agents.nodes import (
     synthesis_node,
 )
 
+logger = logging.getLogger(__name__)
+
 
 # =============================================================================
 # Construction du graphe
 # =============================================================================
 def build_graph() -> StateGraph:
-    """Construit et compile le graphe LangGraph."""
+    """Construit et compile le graphe LangGraph multi-agents."""
     workflow = StateGraph(AgentState)
 
-    # Ajout des nœuds
+    # --- Ajout des nœuds ---
     workflow.add_node("language_detection", language_detection_node)
     workflow.add_node("supervisor", supervisor_node)
     workflow.add_node("retrieval", retrieval_node)
@@ -33,16 +37,17 @@ def build_graph() -> StateGraph:
     workflow.add_node("droit_affaires_agent", droit_affaires_node)
     workflow.add_node("synthesis", synthesis_node)
 
-    # Point d'entrée
+    # --- Point d'entrée ---
     workflow.set_entry_point("language_detection")
 
-    # Flux principal
+    # --- Flux principal ---
+    # 1. Détection de langue
     workflow.add_edge("language_detection", "supervisor")
 
-    # Routage depuis supervisor vers retrieval first!
+    # 2. Superviseur → Retrieval (toujours, pour charger le contexte avant le bon agent)
     workflow.add_edge("supervisor", "retrieval")
 
-    # Après retrieval, on route vers le bon agent!
+    # 3. Retrieval → Agent spécialisé (ou Synthesis si domaine non identifié)
     workflow.add_conditional_edges(
         "retrieval",
         route_by_domain,
@@ -54,16 +59,19 @@ def build_graph() -> StateGraph:
         },
     )
 
-    # Après les agents spécialisés, on va à synthesis
+    # 4. Agents spécialisés → Synthesis
     workflow.add_edge("droit_travail_agent", "synthesis")
     workflow.add_edge("fiscalite_agent", "synthesis")
     workflow.add_edge("droit_affaires_agent", "synthesis")
+
+    # 5. Synthesis → END
     workflow.add_edge("synthesis", END)
 
+    logger.info("Graphe LangGraph compilé avec succès.")
     return workflow.compile()
 
 
 # =============================================================================
-# Singleton : graphe compilé (chargé une seule fois au démarrage)
+# Singleton : graphe compilé (chargé une seule fois au démarrage de l'app)
 # =============================================================================
 compiled_graph = build_graph()

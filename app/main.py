@@ -9,6 +9,7 @@ Responsabilités :
   - Expose l'endpoint /health pour les health-checks (load balancer, K8s, etc.).
 """
 
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import AsyncGenerator
@@ -21,6 +22,14 @@ from pydantic import ValidationError
 from app.core.config import settings
 from app.db.database import check_db_connection, create_all_tables
 from app.schemas.common import build_error_response
+
+# Configuration du logging pour toute l'application
+logging.basicConfig(
+    level=logging.DEBUG if settings.DEBUG else logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s : %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------------------- #
@@ -52,9 +61,33 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if settings.DEBUG:
         create_all_tables()
 
+    logger.info(
+        "=== Assistant Juridique Malgache démarré | provider=%s | debug=%s ===",
+        settings.LLM_PROVIDER,
+        settings.DEBUG,
+    )
+
     yield
 
-    # --- Shutdown (rien à faire pour SQLAlchemy en mode pool) ---
+    # --- Shutdown ---
+    logger.info("=== Assistant Juridique Malgache arrêté ===")
+
+
+# --------------------------------------------------------------------------- #
+# Instance FastAPI
+# --------------------------------------------------------------------------- #
+app = FastAPI(
+    title=settings.APP_TITLE,
+    version=settings.APP_VERSION,
+    description=(
+        "API backend de l'assistant juridique malgache multi-agents. "
+        "Prend en charge le français, le malagasy et l'anglais."
+    ),
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
+    lifespan=lifespan,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -103,21 +136,6 @@ async def validation_exception_handler(request: Request, exc: ValidationError):
     )
 
 
-# --------------------------------------------------------------------------- #
-# Instance FastAPI
-# --------------------------------------------------------------------------- #
-app = FastAPI(
-    title=settings.APP_TITLE,
-    version=settings.APP_VERSION,
-    description=(
-        "API backend de l'assistant juridique malgache multi-agents. "
-        "Prend en charge le français, le malagasy et l'anglais."
-    ),
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json",
-    lifespan=lifespan,
-)
 
 # --------------------------------------------------------------------------- #
 # Middlewares

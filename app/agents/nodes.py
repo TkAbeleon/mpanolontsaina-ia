@@ -5,10 +5,13 @@ Références :
   - 04_guide_implementation_vertex_ai.md §3
   - 05_guide_switch_provider_mistral_vertex.md §7
 """
+import logging
 from typing import Any, List, Optional, TypedDict
 
 from app.providers.factory import get_llm_provider
 from app.rag.chroma_client import COLLECTIONS, query_collection
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -19,8 +22,8 @@ class AgentState(TypedDict):
     question: str
     history: List[dict]
     user_id: Optional[str]
-    language: Optional[str]  # "mg" | "fr" | "en"
-    domain: Optional[str]  # "droit_travail" | "fiscalite" | "droit_affaires" | None
+    language: Optional[str]          # "mg" | "fr" | "en"
+    domain: Optional[str]            # "droit_travail" | "fiscalite" | "droit_affaires" | None
     retrieved_context: Optional[List[dict]]
     final_answer: Optional[str]
     agent_source: Optional[str]
@@ -48,28 +51,34 @@ DOMAINS = {
 async def language_detection_node(state: AgentState) -> AgentState:
     """
     Détecte la langue de la question si elle n'est pas déjà fournie.
-    Si la langue est déjà présente dans l'état, ne fait rien.
+    Utilise le LLM via agenerate() pour ne pas bloquer l'event loop.
     """
     if state.get("language") and state["language"] in ("mg", "fr", "en"):
         return state
 
     provider = get_llm_provider()
-    system_prompt = """
-    Tu es un détecteur de langue. Analyse le texte suivant et réponds
-    UNIQUEMENT par un code parmi : mg, fr, en (aucun autre mot, aucune ponctuation).
-    mg = malagasy, fr = français, en = anglais.
-    """
-    detected = provider.generate(
-        system_prompt=system_prompt,
-        user_prompt=state["question"],
-        temperature=0.0,
-        max_tokens=10,
-    ).strip().lower()
+    system_prompt = (
+        "Tu es un détecteur de langue. Analyse le texte suivant et réponds "
+        "UNIQUEMENT par un code parmi : mg, fr, en (aucun autre mot, aucune ponctuation). "
+        "mg = malagasy, fr = français, en = anglais."
+    )
 
-    # Valeur par défaut si la détection échoue
+    try:
+        detected = await provider.agenerate(
+            system_prompt=system_prompt,
+            user_prompt=state["question"],
+            temperature=0.0,
+            max_tokens=10,
+        )
+        detected = detected.strip().lower()
+    except Exception as exc:
+        logger.warning("Échec détection de langue : %s — repli sur 'fr'", exc)
+        detected = "fr"
+
     if detected not in ("mg", "fr", "en"):
         detected = "fr"
 
+    logger.debug("Langue détectée : %s", detected)
     return {**state, "language": detected}
 
 
@@ -78,38 +87,52 @@ async def language_detection_node(state: AgentState) -> AgentState:
 # =============================================================================
 async def supervisor_node(state: AgentState) -> AgentState:
     """
-    Classifie la question dans un domaine juridique : droit_travail, fiscalite, droit_affaires, ou None.
+    Classifie la question dans un domaine juridique via le LLM.
+    Utilise agenerate() pour ne pas bloquer l'event loop.
     """
     provider = get_llm_provider()
-    lang_label = LANGUAGE_LABELS[state["language"]]
+    lang = state.get("language", "fr")
+    lang_label = LANGUAGE_LABELS.get(lang, "français")
 
-    system_prompt = f"""
-    Tu es un superviseur d'agents juridiques malgaches.
-    Classifie la question de l'utilisateur dans l'un des domaines suivants :
-    - droit_travail : questions sur le travail, les contrats, les licenciements, les salaires, etc.
-    - fiscalite : questions sur les impôts, les taxes, la TVA, etc.
-    - droit_affaires : questions sur les entreprises, les sociétés, les contrats commerciaux, etc.
+    system_prompt = (
+        "Tu es un superviseur d'agents juridiques malgaches.\n"
+        "Classifie la question de l'utilisateur dans l'un des domaines suivants :\n"
+        "- droit_travail : travail, contrats de travail, licenciements, salaires, préavis, congés, syndicats\n"
+        "- fiscalite : impôts, taxes, TVA, déclarations fiscales, exonérations\n"
+        "- droit_affaires : entreprises, sociétés, contrats commerciaux, OHADA, création d'entreprise\n\n"
+        "Réponds UNIQUEMENT par le nom du domaine exact "
+        "(droit_travail, fiscalite, droit_affaires) ou 'autre' si aucune catégorie ne correspond.\n"
+        f"Réponds toujours en {lang_label}."
+    )
 
-    Réponds UNIQUEMENT par le nom du domaine (droit_travail, fiscalite, droit_affaires) ou "autre" si aucune catégorie ne correspond.
-    Réponds en respectant la langue : {lang_label}.
-    """
+    try:
+        domain = await provider.agenerate(
+            system_prompt=system_prompt,
+            user_prompt=state["question"],
+            temperature=0.0,
+            max_tokens=20,
+        )
+        domain = domain.strip().lower()
+        # Nettoyer les réponses potentiellement verboses
+        for key in DOMAINS:
+            if key in domain:
+                domain = key
+                break
+        else:
+            domain = None
+    except Exception as exc:
+        logger.warning("Échec classification du domaine : %s", exc)
+        domain = None
 
-    domain = provider.generate(
-        system_prompt=system_prompt,
-        user_prompt=state["question"],
-        temperature=0.0,
-        max_tokens=20,
-    ).strip().lower()
-
-    # Validation du domaine
     if domain not in DOMAINS:
         domain = None
 
+    logger.debug("Domaine classifié : %s", domain)
     return {**state, "domain": domain}
 
 
 # =============================================================================
-# Fonction de routage conditionnel (après le superviseur)
+# Fonction de routage conditionnel (après le retrieval)
 # =============================================================================
 def route_by_domain(state: AgentState) -> str:
     """
@@ -118,43 +141,57 @@ def route_by_domain(state: AgentState) -> str:
     """
     domain = state.get("domain")
     if domain == "droit_travail":
-        return "droit_travail_agent"
+        return "droit_travail"
     elif domain == "fiscalite":
-        return "fiscalite_agent"
+        return "fiscalite"
     elif domain == "droit_affaires":
-        return "droit_affaires_agent"
+        return "droit_affaires"
     else:
-        # Si pas de domaine spécifique, on va directement à la synthèse
+        # Si pas de domaine spécifique, on va directement à la synthèse générale
         return "synthesis"
 
 
 # =============================================================================
-# Nœud 3 : Récupération (RAG)
+# Nœud 3 : Récupération (RAG ChromaDB)
 # =============================================================================
 async def retrieval_node(state: AgentState) -> AgentState:
     """
-    Récupère les documents juridiques pertinents depuis ChromaDB en fonction du domaine.
+    Récupère les documents juridiques pertinents depuis ChromaDB.
+    Robuste aux collections vides ou inexistantes.
     """
     domain = state.get("domain")
     if not domain or domain not in COLLECTIONS:
+        logger.debug("Aucun domaine → pas de retrieval ChromaDB.")
         return {**state, "retrieved_context": []}
 
     collection_name = COLLECTIONS[domain]
-    results = query_collection(
-        collection_name=collection_name,
-        query_texts=[state["question"]],
-        n_results=5,
-    )
+    logger.debug("Retrieval dans collection '%s' pour la question : %s", collection_name, state["question"][:80])
+
+    try:
+        results = query_collection(
+            collection_name=collection_name,
+            query_texts=[state["question"]],
+            n_results=5,
+        )
+    except Exception as exc:
+        logger.warning("Échec retrieval ChromaDB (collection=%s) : %s", collection_name, exc)
+        return {**state, "retrieved_context": []}
 
     # Transforme les résultats en contexte structuré
     context = []
-    for i, doc in enumerate(results.get("documents", [[]])[0]):
-        metadata = results.get("metadatas", [[]])[0][i] if results.get("metadatas") else {}
+    docs = results.get("documents", [[]])[0] if results else []
+    metadatas = results.get("metadatas", [[]])[0] if results else []
+
+    for i, doc in enumerate(docs):
+        if not doc:
+            continue
+        metadata = metadatas[i] if i < len(metadatas) else {}
         context.append({
             "content": doc,
-            "metadata": metadata,
+            "metadata": metadata or {},
         })
 
+    logger.debug("Retrieval : %d documents récupérés depuis '%s'.", len(context), collection_name)
     return {**state, "retrieved_context": context}
 
 
@@ -199,52 +236,54 @@ async def droit_affaires_node(state: AgentState) -> AgentState:
 # =============================================================================
 async def _specialized_agent_node(state: AgentState, domain: str, agent_name: str) -> AgentState:
     """
-    Fonction générique pour les agents spécialisés.
-    Génère une réponse en utilisant le contexte RAG et la langue cible.
+    Génère une réponse juridique spécialisée en utilisant le contexte RAG et la langue cible.
+    Utilise agenerate() pour ne pas bloquer l'event loop.
     """
     provider = get_llm_provider()
-    lang = state["language"]
-    lang_label = LANGUAGE_LABELS[lang]
-    domain_label = DOMAINS.get(domain, "droit général")
+    lang = state.get("language", "fr")
+    lang_label = LANGUAGE_LABELS.get(lang, "français")
+    domain_label = DOMAINS.get(domain, "droit général malgache")
 
     # Construit le contexte depuis les documents récupérés
     context_str = ""
-    if state.get("retrieved_context"):
+    retrieved = state.get("retrieved_context") or []
+    if retrieved:
         context_parts = []
-        for ctx in state["retrieved_context"]:
-            ctx_content = ctx.get("content", "")
-            ctx_meta = ctx.get("metadata", {})
-            if ctx_meta:
-                code = ctx_meta.get("code", "")
-                article = ctx_meta.get("article", "")
-                if code or article:
-                    context_parts.append(f"[{code} - Article {article}]\n{ctx_content}")
-                else:
-                    context_parts.append(ctx_content)
-            else:
-                context_parts.append(ctx_content)
-        context_str = "\n\n".join(context_parts)
+        for ctx in retrieved:
+            ctx_content = ctx.get("content", "").strip()
+            if not ctx_content:
+                continue
+            ctx_meta = ctx.get("metadata", {}) or {}
+            code = ctx_meta.get("code", "")
+            article = ctx_meta.get("article", "")
+            header = f"[{code} — {article}]\n" if (code or article) else ""
+            context_parts.append(f"{header}{ctx_content}")
+        context_str = "\n\n---\n\n".join(context_parts)
 
-    system_prompt = f"""
-    Tu es un expert juridique spécialisé en {domain_label}.
-    Réponds IMPÉRATIVEMENT en {lang_label}, même si les extraits de loi fournis en contexte sont rédigés en français.
-    
-    Règles :
-    1. Cite précisément les articles de loi utilisés (si disponibles dans le contexte)
-    2. Ne donne jamais de conseil hors du cadre légal malgache
-    3. Si tu n'as pas assez d'informations, dis-le clairement
-    4. Sois clair, précis et structuré dans tes réponses
-    
-    Contexte juridique :
-    {context_str if context_str else "Aucun contexte spécifique disponible."}
-    """
-
-    answer = provider.generate(
-        system_prompt=system_prompt,
-        user_prompt=state["question"],
-        temperature=0.2,
-        max_tokens=1024,
+    no_context_msg = "Aucun contexte spécifique disponible. Réponds d'après tes connaissances générales du droit malgache."
+    system_prompt = (
+        f"Tu es un expert juridique spécialisé en {domain_label}.\n"
+        f"Réponds IMPÉRATIVEMENT en {lang_label}, même si les extraits de loi "
+        "fournis en contexte sont rédigés en français.\n\n"
+        "Règles :\n"
+        "1. Cite précisément les articles de loi utilisés (si disponibles dans le contexte)\n"
+        "2. Ne donne jamais de conseil hors du cadre légal malgache\n"
+        "3. Si tu n'as pas assez d'informations, dis-le clairement\n"
+        "4. Sois clair, précis et structuré dans ta réponse\n\n"
+        f"Contexte juridique disponible :\n{context_str if context_str else no_context_msg}"
     )
+
+    logger.debug("Agent '%s' génère une réponse en '%s'.", agent_name, lang)
+    try:
+        answer = await provider.agenerate(
+            system_prompt=system_prompt,
+            user_prompt=state["question"],
+            temperature=0.2,
+            max_tokens=1500,
+        )
+    except Exception as exc:
+        logger.error("Échec de la génération LLM (%s) : %s", agent_name, exc)
+        answer = "Une erreur est survenue lors de la génération de la réponse."
 
     return {
         **state,
@@ -254,35 +293,41 @@ async def _specialized_agent_node(state: AgentState, domain: str, agent_name: st
 
 
 # =============================================================================
-# Nœud 7 : Synthèse
+# Nœud 7 : Synthèse (réponse générique si aucun agent spécialisé n'a répondu)
 # =============================================================================
 async def synthesis_node(state: AgentState) -> AgentState:
     """
-    Synthétise la réponse finale. Si un agent spécialisé a déjà répondu,
-    on retourne directement sa réponse. Sinon, on génère une réponse générique.
+    Si un agent spécialisé a déjà répondu, on retourne directement sa réponse.
+    Sinon, on génère une réponse générique via le LLM.
     """
-    # Si on a déjà une réponse, on la garde
+    # Si on a déjà une réponse d'un agent spécialisé, on la retourne sans modification.
     if state.get("final_answer"):
+        logger.debug("Synthesis : réponse déjà produite par '%s', passthrough.", state.get("agent_source"))
         return state
 
-    # Sinon, réponse générique
+    # Aucun agent spécialisé n'a répondu → réponse générale
     provider = get_llm_provider()
-    lang = state["language"]
-    lang_label = LANGUAGE_LABELS[lang]
+    lang = state.get("language", "fr")
+    lang_label = LANGUAGE_LABELS.get(lang, "français")
 
-    system_prompt = f"""
-    Tu es un assistant juridique malgache.
-    Réponds en {lang_label} en indiquant que cette question concerne un domaine juridique non spécifique
-    ou que tu ne peux pas répondre avec certitude sans plus de précisions.
-    Invite l'utilisateur à préciser sa question.
-    """
-
-    answer = provider.generate(
-        system_prompt=system_prompt,
-        user_prompt=state["question"],
-        temperature=0.3,
-        max_tokens=512,
+    system_prompt = (
+        f"Tu es un assistant juridique malgache généraliste.\n"
+        f"Réponds en {lang_label}.\n"
+        "Si la question ne concerne pas un domaine juridique précis ou si tu ne peux pas y répondre "
+        "avec certitude, dis-le clairement et invite l'utilisateur à préciser sa question.\n"
+        "Tu peux aussi orienter l'utilisateur vers le bon service ou professionnel juridique."
     )
+
+    try:
+        answer = await provider.agenerate(
+            system_prompt=system_prompt,
+            user_prompt=state["question"],
+            temperature=0.3,
+            max_tokens=800,
+        )
+    except Exception as exc:
+        logger.error("Échec de la synthèse générale : %s", exc)
+        answer = "Je suis désolé, une erreur est survenue. Veuillez réessayer."
 
     return {
         **state,

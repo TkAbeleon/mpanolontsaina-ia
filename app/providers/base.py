@@ -5,6 +5,7 @@ Les nœuds LangGraph et le reste du code métier ne connaissent QUE cette interf
 Contrat défini dans 05_guide_switch_provider_mistral_vertex.md §3.
 """
 
+import asyncio
 from abc import ABC, abstractmethod
 from typing import List
 
@@ -13,7 +14,7 @@ class LLMProvider(ABC):
     """
     Contrat commun que doit respecter tout fournisseur LLM (Vertex AI, Mistral, etc.).
     Toute implémentation concrète doit hériter de cette classe et implémenter
-    les deux méthodes ci-dessous.
+    les quatre méthodes ci-dessous (synchrones + async).
     """
 
     @abstractmethod
@@ -25,7 +26,7 @@ class LLMProvider(ABC):
         max_tokens: int = 1024,
     ) -> str:
         """
-        Génère une réponse texte à partir d'un prompt système et d'un prompt utilisateur.
+        Génère une réponse texte (méthode synchrone).
 
         Args:
             system_prompt: Instructions de rôle / contexte envoyées au modèle.
@@ -41,7 +42,7 @@ class LLMProvider(ABC):
     @abstractmethod
     def embed(self, texts: List[str]) -> List[List[float]]:
         """
-        Retourne les vecteurs d'embedding pour une liste de textes.
+        Retourne les vecteurs d'embedding pour une liste de textes (méthode synchrone).
         Utilisé pour l'indexation et la recherche sémantique dans ChromaDB (RAG).
 
         Args:
@@ -51,3 +52,34 @@ class LLMProvider(ABC):
             Liste de vecteurs flottants, un par texte d'entrée.
         """
         raise NotImplementedError
+
+    async def agenerate(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.2,
+        max_tokens: int = 1024,
+    ) -> str:
+        """
+        Version async de generate() — délègue à asyncio.to_thread pour ne pas
+        bloquer l'event loop FastAPI/LangGraph.
+
+        Les sous-classes peuvent surcharger cette méthode si le SDK dispose
+        d'une API native async (ex: client HTTP async).
+        """
+        return await asyncio.to_thread(
+            self.generate,
+            system_prompt,
+            user_prompt,
+            temperature,
+            max_tokens,
+        )
+
+    async def aembed(self, texts: List[str]) -> List[List[float]]:
+        """
+        Version async de embed() — délègue à asyncio.to_thread.
+
+        Les sous-classes peuvent surcharger cette méthode si le SDK dispose
+        d'une API native async.
+        """
+        return await asyncio.to_thread(self.embed, texts)
