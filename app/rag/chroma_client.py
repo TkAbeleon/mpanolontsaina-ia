@@ -20,9 +20,21 @@ from app.providers.factory import get_llm_provider
 # =============================================================================
 class SwitchableEmbeddingFunction(EmbeddingFunction[Documents]):
     """Fonction d'embedding qui délègue au LLMProvider actif (Mistral ou Vertex)."""
+
     def __call__(self, input: Documents) -> Embeddings:
         provider = get_llm_provider()
-        return provider.embed(list(input))
+        docs = list(input)
+        if not docs:
+            return []
+
+        # Vertex AI applique une limite stricte sur le nombre de tokens par requête.
+        # On envoie les documents par petits lots pour éviter l’erreur 400.
+        batch_size = 4
+        all_embeddings: List[List[float]] = []
+        for start in range(0, len(docs), batch_size):
+            batch = docs[start:start + batch_size]
+            all_embeddings.extend(provider.embed(batch))
+        return all_embeddings
 
 
 # =============================================================================
@@ -101,4 +113,6 @@ COLLECTIONS = {
     "fiscalite": "fiscalite_mg",
     "droit_affaires": "droit_affaires_mg",
     "jurisprudence": "jurisprudence_mg",
+    "foncier": "foncier_mg",
+    "famille": "famille_mg",
 }

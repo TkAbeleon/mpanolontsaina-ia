@@ -50,10 +50,13 @@ async def visitor_chat(
 ):
     """Chat éphémère pour les visiteurs (pas d'authentification requise)."""
     if not request.message or len(request.message.strip()) == 0:
-        return build_error_response(
-            code="EMPTY_MESSAGE",
-            message="Le champ 'message' ne peut pas être vide."
-        ), status.HTTP_400_BAD_REQUEST
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=build_error_response(
+                code="EMPTY_MESSAGE",
+                message="Le champ 'message' ne peut pas être vide."
+            ).model_dump()
+        )
 
     # Génère un session_id si non fourni
     session_id = request.session_id or uuid4()
@@ -98,10 +101,13 @@ async def visitor_chat(
         return build_success_response(response_data.model_dump())
 
     except Exception as e:
-        return build_error_response(
-            code="AGENT_PIPELINE_FAILURE",
-            message="Une erreur est survenue lors du traitement de votre question. Veuillez réessayer."
-        ), status.HTTP_500_INTERNAL_SERVER_ERROR
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=build_error_response(
+                code="AGENT_PIPELINE_FAILURE",
+                message="Une erreur est survenue lors du traitement de votre question. Veuillez réessayer."
+            ).model_dump()
+        )
 
 
 # =============================================================================
@@ -209,10 +215,13 @@ def get_conversation(
     ).first()
 
     if not conversation:
-        return build_error_response(
-            code="CONVERSATION_NOT_FOUND",
-            message="Conversation introuvable ou accès non autorisé."
-        ), status.HTTP_404_NOT_FOUND
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=build_error_response(
+                code="CONVERSATION_NOT_FOUND",
+                message="Conversation introuvable ou accès non autorisé."
+            ).model_dump()
+        )
 
     # Récupère les messages
     messages = db.query(Message).filter(
@@ -273,10 +282,13 @@ async def send_message(
 ):
     """Envoie un message dans une conversation et reçoit une réponse de l'assistant."""
     if not request.message or len(request.message.strip()) == 0:
-        return build_error_response(
-            code="VALIDATION_ERROR",
-            message="Le champ 'message' est requis."
-        ), status.HTTP_422_UNPROCESSABLE_ENTITY
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=build_error_response(
+                code="VALIDATION_ERROR",
+                message="Le champ 'message' est requis."
+            ).model_dump()
+        )
 
     # Vérifie la conversation
     conversation = db.query(Conversation).filter(
@@ -285,10 +297,13 @@ async def send_message(
     ).first()
 
     if not conversation:
-        return build_error_response(
-            code="CONVERSATION_NOT_FOUND",
-            message="Conversation introuvable ou accès non autorisé."
-        ), status.HTTP_404_NOT_FOUND
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=build_error_response(
+                code="CONVERSATION_NOT_FOUND",
+                message="Conversation introuvable ou accès non autorisé."
+            ).model_dump()
+        )
 
     # Récupère l'historique des messages
     history = db.query(Message).filter(
@@ -398,10 +413,13 @@ async def send_message(
 
     except Exception as e:
         db.rollback()
-        return build_error_response(
-            code="AGENT_PIPELINE_FAILURE",
-            message="Une erreur est survenue lors du traitement de votre question. Veuillez réessayer."
-        ), status.HTTP_500_INTERNAL_SERVER_ERROR
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=build_error_response(
+                code="AGENT_PIPELINE_FAILURE",
+                message="Une erreur est survenue lors du traitement de votre question. Veuillez réessayer."
+            ).model_dump()
+        )
 
 
 # =============================================================================
@@ -428,10 +446,13 @@ def delete_conversation(
     ).first()
 
     if not conversation:
-        return build_error_response(
-            code="CONVERSATION_NOT_FOUND",
-            message="Conversation introuvable ou accès non autorisé."
-        ), status.HTTP_404_NOT_FOUND
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=build_error_response(
+                code="CONVERSATION_NOT_FOUND",
+                message="Conversation introuvable ou accès non autorisé."
+            ).model_dump()
+        )
 
     db.delete(conversation)
     db.commit()
@@ -456,10 +477,13 @@ def seed_chroma(
     """Ajoute des documents à une collection ChromaDB (pour développement seulement)."""
     # Vérifie que la collection est valide
     if collection_name not in COLLECTIONS.values():
-        return build_error_response(
-            code="INVALID_COLLECTION",
-            message=f"Collection invalide. Collections disponibles : {list(COLLECTIONS.values())}"
-        ), status.HTTP_400_BAD_REQUEST
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=build_error_response(
+                code="INVALID_COLLECTION",
+                message=f"Collection invalide. Collections disponibles : {list(COLLECTIONS.values())}"
+            ).model_dump()
+        )
 
     add_documents_to_collection(
         collection_name=collection_name,

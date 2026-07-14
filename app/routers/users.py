@@ -65,10 +65,13 @@ def update_my_profile(
     # Vérifie qu'au moins un champ est fourni
     update_data = request.model_dump(exclude_unset=True)
     if not update_data:
-        return build_error_response(
-            code="INVALID_PAYLOAD",
-            message="Aucun champ modifiable fourni."
-        ), status.HTTP_400_BAD_REQUEST
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=build_error_response(
+                code="INVALID_PAYLOAD",
+                message="Aucun champ modifiable fourni."
+            ).model_dump()
+        )
 
     # Applique les modifications
     if "full_name" in update_data:
@@ -116,17 +119,23 @@ def delete_my_account(
     """Supprime ou anonymise le compte de l'utilisateur connecté."""
     # Vérifie la confirmation
     if request.confirmation != "SUPPRIMER MON COMPTE":
-        return build_error_response(
-            code="CONFIRMATION_REQUIRED",
-            message="Le texte de confirmation ne correspond pas à celui attendu."
-        ), status.HTTP_400_BAD_REQUEST
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=build_error_response(
+                code="CONFIRMATION_REQUIRED",
+                message="Le texte de confirmation ne correspond pas à celui attendu."
+            ).model_dump()
+        )
 
     # Vérifie le mot de passe
     if not verify_password(request.password, current_user.hashed_password or ""):
-        return build_error_response(
-            code="INVALID_PASSWORD",
-            message="Le mot de passe fourni est incorrect."
-        ), status.HTTP_401_UNAUTHORIZED
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=build_error_response(
+                code="INVALID_PASSWORD",
+                message="Le mot de passe fourni est incorrect."
+            ).model_dump()
+        )
 
     now = datetime.now(timezone.utc)
 

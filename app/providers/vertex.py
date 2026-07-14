@@ -65,7 +65,27 @@ class VertexAIProvider(LLMProvider):
                 "max_output_tokens": max_tokens,
             },
         )
-        return response.text
+
+        # Le SDK peut renvoyer le texte dans `response.text` ou dans
+        # `response.candidates[...].content.parts[...]`. Gérer les deux cas.
+        text = getattr(response, "text", None)
+        if text:
+            return text
+
+        candidates = getattr(response, "candidates", None) or []
+        parts_texts = []
+        for cand in candidates:
+            try:
+                parts = getattr(cand.content, "parts", None)
+                if parts:
+                    for p in parts:
+                        t = getattr(p, "text", None)
+                        if t:
+                            parts_texts.append(t)
+            except Exception:
+                continue
+
+        return "\n".join(parts_texts) if parts_texts else ""
 
     # ---------------------------------------------------------------------- #
     # Génération d'embeddings (RAG / ChromaDB multilingue)

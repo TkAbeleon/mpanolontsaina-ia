@@ -39,9 +39,12 @@ def build_graph() -> StateGraph:
     # Flux principal
     workflow.add_edge("language_detection", "supervisor")
 
-    # Routage conditionnel depuis le superviseur
+    # Routage depuis supervisor vers retrieval first!
+    workflow.add_edge("supervisor", "retrieval")
+
+    # Après retrieval, on route vers le bon agent!
     workflow.add_conditional_edges(
-        "supervisor",
+        "retrieval",
         route_by_domain,
         {
             "droit_travail": "droit_travail_agent",
@@ -51,11 +54,10 @@ def build_graph() -> StateGraph:
         },
     )
 
-    # Flux après les agents spécialisés : retrieval → synthesis → END
-    workflow.add_edge("droit_travail_agent", "retrieval")
-    workflow.add_edge("fiscalite_agent", "retrieval")
-    workflow.add_edge("droit_affaires_agent", "retrieval")
-    workflow.add_edge("retrieval", "synthesis")
+    # Après les agents spécialisés, on va à synthesis
+    workflow.add_edge("droit_travail_agent", "synthesis")
+    workflow.add_edge("fiscalite_agent", "synthesis")
+    workflow.add_edge("droit_affaires_agent", "synthesis")
     workflow.add_edge("synthesis", END)
 
     return workflow.compile()

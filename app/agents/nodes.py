@@ -45,7 +45,7 @@ DOMAINS = {
 # =============================================================================
 # Nœud 1 : Détection de langue
 # =============================================================================
-def language_detection_node(state: AgentState) -> AgentState:
+async def language_detection_node(state: AgentState) -> AgentState:
     """
     Détecte la langue de la question si elle n'est pas déjà fournie.
     Si la langue est déjà présente dans l'état, ne fait rien.
@@ -76,7 +76,7 @@ def language_detection_node(state: AgentState) -> AgentState:
 # =============================================================================
 # Nœud 2 : Superviseur (classification du domaine)
 # =============================================================================
-def supervisor_node(state: AgentState) -> AgentState:
+async def supervisor_node(state: AgentState) -> AgentState:
     """
     Classifie la question dans un domaine juridique : droit_travail, fiscalite, droit_affaires, ou None.
     """
@@ -131,7 +131,7 @@ def route_by_domain(state: AgentState) -> str:
 # =============================================================================
 # Nœud 3 : Récupération (RAG)
 # =============================================================================
-def retrieval_node(state: AgentState) -> AgentState:
+async def retrieval_node(state: AgentState) -> AgentState:
     """
     Récupère les documents juridiques pertinents depuis ChromaDB en fonction du domaine.
     """
@@ -161,9 +161,9 @@ def retrieval_node(state: AgentState) -> AgentState:
 # =============================================================================
 # Nœud 4 : Agent spécialisé - Droit du travail
 # =============================================================================
-def droit_travail_node(state: AgentState) -> AgentState:
+async def droit_travail_node(state: AgentState) -> AgentState:
     """Agent spécialisé en droit du travail malgache."""
-    return _specialized_agent_node(
+    return await _specialized_agent_node(
         state=state,
         domain="droit_travail",
         agent_name="droit_travail_agent",
@@ -173,9 +173,9 @@ def droit_travail_node(state: AgentState) -> AgentState:
 # =============================================================================
 # Nœud 5 : Agent spécialisé - Fiscalité
 # =============================================================================
-def fiscalite_node(state: AgentState) -> AgentState:
+async def fiscalite_node(state: AgentState) -> AgentState:
     """Agent spécialisé en droit fiscal malgache."""
-    return _specialized_agent_node(
+    return await _specialized_agent_node(
         state=state,
         domain="fiscalite",
         agent_name="fiscalite_agent",
@@ -185,9 +185,9 @@ def fiscalite_node(state: AgentState) -> AgentState:
 # =============================================================================
 # Nœud 6 : Agent spécialisé - Droit des affaires
 # =============================================================================
-def droit_affaires_node(state: AgentState) -> AgentState:
+async def droit_affaires_node(state: AgentState) -> AgentState:
     """Agent spécialisé en droit des affaires malgache."""
-    return _specialized_agent_node(
+    return await _specialized_agent_node(
         state=state,
         domain="droit_affaires",
         agent_name="droit_affaires_agent",
@@ -197,7 +197,7 @@ def droit_affaires_node(state: AgentState) -> AgentState:
 # =============================================================================
 # Fonction utilitaire pour les agents spécialisés
 # =============================================================================
-def _specialized_agent_node(state: AgentState, domain: str, agent_name: str) -> AgentState:
+async def _specialized_agent_node(state: AgentState, domain: str, agent_name: str) -> AgentState:
     """
     Fonction générique pour les agents spécialisés.
     Génère une réponse en utilisant le contexte RAG et la langue cible.
@@ -256,7 +256,7 @@ def _specialized_agent_node(state: AgentState, domain: str, agent_name: str) -> 
 # =============================================================================
 # Nœud 7 : Synthèse
 # =============================================================================
-def synthesis_node(state: AgentState) -> AgentState:
+async def synthesis_node(state: AgentState) -> AgentState:
     """
     Synthétise la réponse finale. Si un agent spécialisé a déjà répondu,
     on retourne directement sa réponse. Sinon, on génère une réponse générique.

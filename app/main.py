@@ -13,12 +13,14 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import AsyncGenerator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 
 from app.core.config import settings
 from app.db.database import check_db_connection, create_all_tables
+from app.schemas.common import build_error_response
 
 
 # --------------------------------------------------------------------------- #
@@ -53,6 +55,52 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
     # --- Shutdown (rien à faire pour SQLAlchemy en mode pool) ---
+
+
+# --------------------------------------------------------------------------- #
+# Custom Exception Handlers
+# --------------------------------------------------------------------------- #
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """
+    Gère les exceptions HTTPException en renvoyant une réponse standardisée
+    avec le format {status: "error", error: {...}}.
+    """
+    # Si le détail est déjà une réponse d'erreur standardisée (dict), on l'utilise
+    if isinstance(exc.detail, dict):
+        return JSONResponse(content=exc.detail, status_code=exc.status_code)
+    # Sinon, on construit une réponse d'erreur standardisée
+    return JSONResponse(
+        content=build_error_response(
+            code=f"HTTP_{exc.status_code}",
+            message=exc.detail if isinstance(exc.detail, str) else "Erreur inattendue"
+        ).model_dump(),
+        status_code=exc.status_code
+    )
+
+
+@app.exception_handler(ValidationError)
+async def validation_exception_handler(request: Request, exc: ValidationError):
+    """
+    Gère les exceptions de validation Pydantic en renvoyant une réponse
+    standardisée avec les détails des champs invalides.
+    """
+    errors = [
+        {
+            "loc": err["loc"],
+            "msg": err["msg"],
+            "type": err["type"]
+        }
+        for err in exc.errors()
+    ]
+    return JSONResponse(
+        content=build_error_response(
+            code="VALIDATION_ERROR",
+            message="Erreur de validation des données fournies.",
+            fields=errors
+        ).model_dump(),
+        status_code=422
+    )
 
 
 # --------------------------------------------------------------------------- #

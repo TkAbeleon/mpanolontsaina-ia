@@ -49,13 +49,16 @@ def register(
     db: Session = Depends(get_db)
 ):
     """Inscription d'un nouvel utilisateur."""
-    # Vérifie si l'email existe déjà
+    # Vérifie que l'email n'existe pas déjà
     existing_user = db.query(User).filter(User.email == request.email).first()
     if existing_user:
-        return build_error_response(
-            code="EMAIL_ALREADY_EXISTS",
-            message="Un compte existe déjà avec cet email."
-        ), status.HTTP_409_CONFLICT
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=build_error_response(
+                code="EMAIL_ALREADY_EXISTS",
+                message="Un compte existe déjà avec cet email."
+            ).model_dump()
+        )
 
     # Crée le nouvel utilisateur
     hashed_pwd = hash_password(request.password)
@@ -105,17 +108,23 @@ def login(
 
     # Vérifie les credentials
     if not user or not verify_password(request.password, user.hashed_password or ""):
-        return build_error_response(
-            code="INVALID_CREDENTIALS",
-            message="Email ou mot de passe incorrect."
-        ), status.HTTP_401_UNAUTHORIZED
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=build_error_response(
+                code="INVALID_CREDENTIALS",
+                message="Email ou mot de passe incorrect."
+            ).model_dump()
+        )
 
     # Vérifie si le compte est actif
     if not user.is_active or user.is_deleted:
-        return build_error_response(
-            code="ACCOUNT_DISABLED",
-            message="Ce compte a été désactivé ou supprimé."
-        ), status.HTTP_403_FORBIDDEN
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=build_error_response(
+                code="ACCOUNT_DISABLED",
+                message="Ce compte a été désactivé ou supprimé."
+            ).model_dump()
+        )
 
     # Génère les tokens
     access_token = create_access_token(data={"sub": str(user.id)})
@@ -168,10 +177,13 @@ def refresh_token(
     try:
         token_uuid = UUID(request.refresh_token)
     except ValueError:
-        return build_error_response(
-            code="REFRESH_TOKEN_INVALID",
-            message="Le refresh token est invalide, expiré ou déjà révoqué."
-        ), status.HTTP_401_UNAUTHORIZED
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=build_error_response(
+                code="REFRESH_TOKEN_INVALID",
+                message="Le refresh token est invalide, expiré ou déjà révoqué."
+            ).model_dump()
+        )
 
     db_token = db.query(RefreshToken).filter(
         RefreshToken.id == token_uuid,
@@ -180,10 +192,13 @@ def refresh_token(
     ).first()
 
     if not db_token or not verify_password(request.refresh_token, db_token.token_hash):
-        return build_error_response(
-            code="REFRESH_TOKEN_INVALID",
-            message="Le refresh token est invalide, expiré ou déjà révoqué."
-        ), status.HTTP_401_UNAUTHORIZED
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=build_error_response(
+                code="REFRESH_TOKEN_INVALID",
+                message="Le refresh token est invalide, expiré ou déjà révoqué."
+            ).model_dump()
+        )
 
     # Génère un nouveau access token
     new_access_token = create_access_token(data={"sub": str(db_token.user_id)})
@@ -217,10 +232,13 @@ def logout(
     try:
         token_uuid = UUID(request.refresh_token)
     except ValueError:
-        return build_error_response(
-            code="UNAUTHORIZED",
-            message="Token d'accès manquant ou invalide."
-        ), status.HTTP_401_UNAUTHORIZED
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=build_error_response(
+                code="UNAUTHORIZED",
+                message="Token d'accès manquant ou invalide."
+            ).model_dump()
+        )
 
     # Récupère et révoque le token
     db_token = db.query(RefreshToken).filter(
