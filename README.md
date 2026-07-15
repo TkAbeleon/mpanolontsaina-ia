@@ -109,9 +109,10 @@ source .venv/bin/activate
 ### 3. Installer les dépendances
 
 ```bash
-pip install --upgrade pip
-pip install -r requirements.txt
+./setup.sh
 ```
+
+Le script crée automatiquement le virtualenv `.venv`, l’active, installe les dépendances depuis [requirements.txt](requirements.txt), puis prépare le fichier `.env` si nécessaire.
 
 ### 4. Configurer l'environnement
 
@@ -162,14 +163,17 @@ Toutes les options sont documentées dans [`.env.example`](.env.example).
 ### Développement (rechargement automatique)
 
 ```bash
+source .venv/bin/activate
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 ```
 
 ### Production
 
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers 4
+./scripts/start-prod.sh
 ```
+
+Le script de production active automatiquement le virtualenv du projet avant de lancer Uvicorn.
 
 L'API sera disponible sur :
 - **Documentation Swagger** : http://localhost:8080/api/docs
