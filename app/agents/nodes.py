@@ -50,35 +50,40 @@ DOMAINS = {
 # =============================================================================
 async def language_detection_node(state: AgentState) -> AgentState:
     """
-    Détecte la langue de la question si elle n'est pas déjà fournie.
-    Utilise le LLM via agenerate() pour ne pas bloquer l'event loop.
+    Détecte la langue de la question via le LLM.
+    On vérifie toujours avec le LLM même si un paramètre language est fourni,
+    car l'utilisateur peut envoyer une mauvaise valeur (ex: language='fr' mais écrit en malgache).
     """
-    if state.get("language") and state["language"] in ("mg", "fr", "en"):
-        return state
-
     provider = get_llm_provider()
     system_prompt = (
-        "Tu es un détecteur de langue. Analyse le texte suivant et réponds "
-        "UNIQUEMENT par un code parmi : mg, fr, en (aucun autre mot, aucune ponctuation). "
-        "mg = malagasy, fr = français, en = anglais."
+        "You are a language detector. Analyze the following text and respond "
+        "ONLY with one of these codes: mg, fr, en. No other words, no punctuation. "
+        "mg = Malagasy, fr = French, en = English."
     )
 
     try:
-        detected = await provider.agenerate(
+        raw_lang = await provider.agenerate(
             system_prompt=system_prompt,
             user_prompt=state["question"],
             temperature=0.0,
             max_tokens=10,
         )
-        detected = detected.strip().lower()
+        raw_lang = raw_lang.strip().lower()
+        
+        if "mg" in raw_lang or "malagasy" in raw_lang:
+            detected = "mg"
+        elif "en" in raw_lang or "english" in raw_lang:
+            detected = "en"
+        elif "fr" in raw_lang or "french" in raw_lang:
+            detected = "fr"
+        else:
+            detected = state.get("language") or "fr"
+            
     except Exception as exc:
-        logger.warning("Échec détection de langue : %s — repli sur 'fr'", exc)
-        detected = "fr"
+        logger.warning("Échec détection de langue : %s — repli sur le paramètre fourni", exc)
+        detected = state.get("language") or "fr"
 
-    if detected not in ("mg", "fr", "en"):
-        detected = "fr"
-
-    logger.debug("Langue détectée : %s", detected)
+    logger.info("Langue détectée : %s (paramètre original: %s, brut: '%s')", detected, state.get("language"), raw_lang if 'raw_lang' in locals() else 'N/A')
     return {**state, "language": detected}
 
 
@@ -88,38 +93,43 @@ async def language_detection_node(state: AgentState) -> AgentState:
 async def supervisor_node(state: AgentState) -> AgentState:
     """
     Classifie la question dans un domaine juridique via le LLM.
-    Utilise agenerate() pour ne pas bloquer l'event loop.
+    Utilise un prompt strict en anglais (langue neutre) pour garantir une réponse
+    machine-readable quelle que soit la langue de l'utilisateur.
     """
     provider = get_llm_provider()
-    lang = state.get("language", "fr")
-    lang_label = LANGUAGE_LABELS.get(lang, "français")
 
+    # Prompt en anglais pour obtenir une réponse fiable indépendamment de la langue
     system_prompt = (
-        "Tu es un superviseur d'agents juridiques malgaches.\n"
-        "Classifie la question de l'utilisateur dans l'un des domaines suivants :\n"
-        "- droit_travail : travail, contrats de travail, licenciements, salaires, préavis, congés, syndicats\n"
-        "- fiscalite : impôts, taxes, TVA, déclarations fiscales, exonérations\n"
-        "- droit_affaires : entreprises, sociétés, contrats commerciaux, OHADA, création d'entreprise\n\n"
-        "Réponds UNIQUEMENT par le nom du domaine exact "
-        "(droit_travail, fiscalite, droit_affaires) ou 'autre' si aucune catégorie ne correspond.\n"
-        f"Réponds toujours en {lang_label}."
+        "You are a legal domain classifier for Malagasy law.\n"
+        "Classify the user's question into exactly ONE of these domains:\n"
+        "  - droit_travail : labor law, employment contracts, dismissal, salary, notice period, leave, unions\n"
+        "  - fiscalite : taxes, VAT, tax declarations, tax exemptions\n"
+        "  - droit_affaires : business law, companies, commercial contracts, OHADA, company creation\n\n"
+        "IMPORTANT: Respond with ONLY the domain name exactly as written above "
+        "(droit_travail, fiscalite, or droit_affaires). "
+        "If none match, respond with ONLY the word: autre\n"
+        "Do NOT write anything else. No explanation, no punctuation."
     )
 
     try:
-        domain = await provider.agenerate(
+        raw = await provider.agenerate(
             system_prompt=system_prompt,
             user_prompt=state["question"],
             temperature=0.0,
-            max_tokens=20,
+            max_tokens=50,
         )
-        domain = domain.strip().lower()
-        # Nettoyer les réponses potentiellement verboses
-        for key in DOMAINS:
-            if key in domain:
-                domain = key
-                break
+        raw = raw.strip().lower()
+        
+        # Heuristique robuste basée sur les mots-clés plutôt qu'une stricte égalité
+        if "travail" in raw or "labor" in raw:
+            domain = "droit_travail"
+        elif "fiscal" in raw or "tax" in raw:
+            domain = "fiscalite"
+        elif "affaire" in raw or "business" in raw or "ohada" in raw:
+            domain = "droit_affaires"
         else:
             domain = None
+            
     except Exception as exc:
         logger.warning("Échec classification du domaine : %s", exc)
         domain = None
@@ -127,7 +137,7 @@ async def supervisor_node(state: AgentState) -> AgentState:
     if domain not in DOMAINS:
         domain = None
 
-    logger.debug("Domaine classifié : %s", domain)
+    logger.info("Domaine classifié : %s (réponse brute LLM: '%s')", domain, raw if 'raw' in dir() else 'N/A')
     return {**state, "domain": domain}
 
 
@@ -244,7 +254,7 @@ async def _specialized_agent_node(state: AgentState, domain: str, agent_name: st
     lang_label = LANGUAGE_LABELS.get(lang, "français")
     domain_label = DOMAINS.get(domain, "droit général malgache")
 
-    # Construit le contexte depuis les documents récupérés
+    # Construit le contexte depuis les documents récupérés (RAG)
     context_str = ""
     retrieved = state.get("retrieved_context") or []
     if retrieved:
@@ -256,21 +266,38 @@ async def _specialized_agent_node(state: AgentState, domain: str, agent_name: st
             ctx_meta = ctx.get("metadata", {}) or {}
             code = ctx_meta.get("code", "")
             article = ctx_meta.get("article", "")
-            header = f"[{code} — {article}]\n" if (code or article) else ""
+            source = ctx_meta.get("source", "")
+            header_parts = [p for p in [code, article, source] if p]
+            header = f"[{' — '.join(header_parts)}]\n" if header_parts else ""
             context_parts.append(f"{header}{ctx_content}")
         context_str = "\n\n---\n\n".join(context_parts)
+        logger.info("Agent '%s' utilise %d extrait(s) RAG depuis ChromaDB.", agent_name, len(context_parts))
+    else:
+        logger.info("Agent '%s' : aucun extrait RAG disponible, réponse sur connaissances générales.", agent_name)
 
-    no_context_msg = "Aucun contexte spécifique disponible. Réponds d'après tes connaissances générales du droit malgache."
+    # Construit l'historique de conversation pour le contexte
+    history = state.get("history") or []
+    history_str = ""
+    if history:
+        history_lines = []
+        for msg in history[-6:]:  # Limite aux 6 derniers échanges
+            role = "Utilisateur" if msg.get("role") == "user" else "Assistant"
+            history_lines.append(f"{role}: {msg.get('content', '')[:300]}")
+        history_str = "\n".join(history_lines)
+
+    no_context_msg = "Aucun extrait de loi spécifique disponible dans la base de données. Réponds d'après tes connaissances générales du droit malgache."
     system_prompt = (
         f"Tu es un expert juridique spécialisé en {domain_label}.\n"
         f"Réponds IMPÉRATIVEMENT en {lang_label}, même si les extraits de loi "
         "fournis en contexte sont rédigés en français.\n\n"
         "Règles :\n"
-        "1. Cite précisément les articles de loi utilisés (si disponibles dans le contexte)\n"
+        "1. Cite précisément les articles de loi si disponibles dans le contexte RAG\n"
         "2. Ne donne jamais de conseil hors du cadre légal malgache\n"
         "3. Si tu n'as pas assez d'informations, dis-le clairement\n"
-        "4. Sois clair, précis et structuré dans ta réponse\n\n"
-        f"Contexte juridique disponible :\n{context_str if context_str else no_context_msg}"
+        "4. Sois clair, précis et structuré\n"
+        "5. Tiens compte du contexte de la conversation précédente si disponible\n\n"
+        + (f"Historique récent :\n{history_str}\n\n" if history_str else "")
+        + f"Extraits juridiques (ChromaDB RAG) :\n{context_str if context_str else no_context_msg}"
     )
 
     logger.debug("Agent '%s' génère une réponse en '%s'.", agent_name, lang)

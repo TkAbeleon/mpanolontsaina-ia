@@ -1,46 +1,25 @@
+import asyncio
 import os
-from google import genai
-from dotenv import load_dotenv
+from app.providers.vertex import VertexAIProvider
+from app.config import get_settings
 
-# Charger les variables d'environnement
-load_dotenv()
+settings = get_settings()
 
-# Forcer l'utilisation du bon fichier de credentials
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/home/tsiky-ny-antsa/Project/AI-Orchestration-API/pandemx-286431ffde07.json"
-
-def test_vertex():
-    project_id = os.getenv("GCP_PROJECT_ID", "pandemx")
-    location = os.getenv("GCP_LOCATION", "europe-west1")
-    model_name = os.getenv("GEMINI_MODEL", "publishers/google/models/gemini-2.5-flash")
-
-    print(f"=== TEST VERTEX AI ===")
-    print(f"Projet: {project_id}")
-    print(f"Location: {location}")
-    print(f"Modèle: {model_name}")
-    print(f"Fichier credentials: {os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')}")
+async def test():
+    provider = VertexAIProvider(settings)
+    system_prompt = (
+        "You are a legal domain classifier for Malagasy law.\n"
+        "Classify the user's question into exactly ONE of these domains:\n"
+        "  - droit_travail : labor law, employment contracts, dismissal, salary, notice period, leave, unions\n"
+        "  - fiscalite : taxes, VAT, tax declarations, tax exemptions\n"
+        "  - droit_affaires : business law, companies, commercial contracts, OHADA, company creation\n\n"
+        "IMPORTANT: Respond with ONLY the domain name exactly as written above (droit_travail, fiscalite, or droit_affaires). If none match, respond with ONLY the word: autre\n"
+        "Do NOT write anything else. No explanation, no punctuation."
+    )
+    user_prompt = "Quelle est la durée du préavis en cas de licenciement à Madagascar?"
     
-    try:
-        client = genai.Client(
-            vertexai=True,
-            project=project_id,
-            location=location,
-        )
-        
-        response = client.models.generate_content(
-            model=model_name,
-            contents=["Bonjour, peux-tu dire 'Test réussi' ?"],
-        )
-        
-        print("\n=== SUCCÈS ===")
-        if hasattr(response, 'text'):
-            print(f"Réponse: {response.text}")
-        else:
-            print(f"Réponse brute: {response}")
-            
-    except Exception as e:
-        print("\n=== ERREUR ===")
-        print(f"Type: {type(e).__name__}")
-        print(f"Détails: {str(e)}")
+    print("Testing generate...")
+    res = await provider.agenerate(system_prompt=system_prompt, user_prompt=user_prompt, temperature=0.0, max_tokens=20)
+    print(f"Result length: {len(res)}, repr: {repr(res)}")
 
-if __name__ == "__main__":
-    test_vertex()
+asyncio.run(test())

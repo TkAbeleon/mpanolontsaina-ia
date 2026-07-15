@@ -29,7 +29,19 @@ class VertexAIProvider(LLMProvider):
 
     def __init__(self) -> None:
         # Import différé : le SDK google-genai n'est requis qu'en mode vertex.
+        import os
         from google import genai  # type: ignore[import]
+
+        # Forcer la variable d'environnement AVANT l'initialisation du SDK.
+        # Le SDK google.auth lit GOOGLE_APPLICATION_CREDENTIALS à l'instanciation,
+        # donc il faut l'injecter ici, pas seulement dans config.py (qui s'exécute avant).
+        creds_path = settings.GOOGLE_APPLICATION_CREDENTIALS
+        if creds_path:
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_path
+            import logging
+            logging.getLogger(__name__).info(
+                "VertexAIProvider: utilisation du compte de service %s", creds_path
+            )
 
         self._client = genai.Client(
             vertexai=True,
