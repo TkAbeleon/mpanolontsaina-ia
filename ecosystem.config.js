@@ -1,10 +1,12 @@
+const path = require('path');
+
 module.exports = {
   apps: [
     {
       name: 'ai-orchestration-api',
-      script: './scripts/start-prod.sh',
+      script: path.join(__dirname, 'scripts', 'start-prod.sh'),
       interpreter: 'bash',
-      cwd: '/home/tsiky-ny-antsa/Project/AI-Orchestration-API',
+      cwd: __dirname,
       env: {
         NODE_ENV: 'production',
         APP_ENV: 'production',
