@@ -140,15 +140,13 @@ async def validation_exception_handler(request: Request, exc: ValidationError):
 # --------------------------------------------------------------------------- #
 # Middlewares
 # --------------------------------------------------------------------------- #
-# CORS : restreindre allow_origins en production via la variable d'env ALLOWED_ORIGINS.
-# allow_credentials=True EST incompatible avec allow_origins=["*"] selon la spec CORS ;
-# on utilise donc un comportement sûr par défaut (aucune credentials cross-origin en dev).
+# CORS ouvert pour le développement local et les appels front-end.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept"],
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -190,3 +188,14 @@ from app.routers import auth, users, chat
 app.include_router(auth.router, prefix="", tags=["Authentification"])
 app.include_router(users.router, prefix="", tags=["Utilisateurs"])
 app.include_router(chat.router, prefix="", tags=["Chat"])
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",
+        port=settings.APP_PORT,
+        reload=settings.DEBUG,
+    )

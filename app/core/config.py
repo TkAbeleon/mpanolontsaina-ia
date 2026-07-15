@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------ #
     APP_TITLE: str = "Assistant Juridique Malgache — API"
     APP_VERSION: str = "0.1.0"
+    APP_PORT: int = 8080
     DEBUG: bool = False
 
     # ------------------------------------------------------------------ #

@@ -162,19 +162,19 @@ Toutes les options sont documentées dans [`.env.example`](.env.example).
 ### Développement (rechargement automatique)
 
 ```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 ```
 
 ### Production
 
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers 4
 ```
 
 L'API sera disponible sur :
-- **Documentation Swagger** : http://localhost:8000/api/docs
-- **Documentation ReDoc** : http://localhost:8000/api/redoc
-- **Health check** : http://localhost:8000/health
+- **Documentation Swagger** : http://localhost:8080/api/docs
+- **Documentation ReDoc** : http://localhost:8080/api/redoc
+- **Health check** : http://localhost:8080/health
 
 ---
 

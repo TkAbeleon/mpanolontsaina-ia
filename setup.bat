@@ -79,12 +79,12 @@ echo ==========================================
 echo.
 echo Pour lancer le serveur :
 echo    .venv\Scripts\activate.bat
-echo    uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+echo    uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 echo.
 echo Documentation API disponible sur :
-echo    http://localhost:8000/api/docs
-echo    http://localhost:8000/api/redoc
+echo    http://localhost:8080/api/docs
+echo    http://localhost:8080/api/redoc
 echo.
-echo Health check : http://localhost:8000/health
+echo Health check : http://localhost:8080/health
 echo ==========================================
 pause
