@@ -18,7 +18,10 @@ export HOST="${HOST:-0.0.0.0}"
 export PORT="${PORT:-8080}"
 export APP_ENV="${APP_ENV:-production}"
 export WORKERS="${WORKERS:-2}"
+export PYTHONUNBUFFERED=1
 
+# PM2 will inherit this environment; make sure the app is started from the
+# project root so imports like app.main work correctly.
 exec python -m uvicorn app.main:app \
   --host "$HOST" \
   --port "$PORT" \
