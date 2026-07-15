@@ -32,7 +32,18 @@ fi
 # Crée l'environnement virtuel
 echo -e "\n[2/4] Création de l'environnement virtuel..."
 if [ ! -d ".venv" ]; then
-    $PYTHON_CMD -m venv .venv
+    if ! $PYTHON_CMD -m venv .venv 2>/tmp/venv-error.log; then
+        echo "⚠️ Le module python3-venv est manquant ou la création du venv a échoué."
+        if command -v apt-get >/dev/null 2>&1; then
+            echo "   Tentative d'installation de python3-venv via apt-get..."
+            sudo apt-get update && sudo apt-get install -y python3-venv
+            $PYTHON_CMD -m venv .venv
+        else
+            echo "❌ Impossible d'installer python3-venv automatiquement sur ce système."
+            cat /tmp/venv-error.log >&2
+            exit 1
+        fi
+    fi
     echo "✓ Environnement virtuel .venv créé"
 else
     echo "ℹ Environnement virtuel .venv existe déjà"
@@ -41,14 +52,19 @@ fi
 # Active l'environnement virtuel et installe les dépendances
 echo -e "\n[3/4] Installation des dépendances..."
 if [[ "$OSTYPE" == "darwin"* ]] || [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    if [ ! -f ".venv/bin/activate" ]; then
+        echo "❌ Le virtualenv n'a pas été créé correctement."
+        exit 1
+    fi
+    # shellcheck disable=SC1091
     source .venv/bin/activate
 else
     echo "❌ OS non supporté pour ce script"
     exit 1
 fi
 
-pip install --upgrade pip
-pip install -r requirements.txt
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 echo "✓ Dépendances installées"
 
 # Copie le fichier .env.example vers .env si nécessaire
