@@ -176,9 +176,13 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 Le script de production active automatiquement le virtualenv du projet avant de lancer Uvicorn.
 
 L'API sera disponible sur :
-- **Documentation Swagger** : http://localhost:8080/api/docs
-- **Documentation ReDoc** : http://localhost:8080/api/redoc
-- **Health check** : http://localhost:8080/health
+- **Production** : https://api.mpanolontsaina-ia.duckdns.org/
+- **Documentation Swagger (prod)** : https://api.mpanolontsaina-ia.duckdns.org/api/docs
+- **Documentation ReDoc (prod)** : https://api.mpanolontsaina-ia.duckdns.org/api/redoc
+- **Health check (prod)** : https://api.mpanolontsaina-ia.duckdns.org/health
+- **Documentation Swagger (local)** : http://localhost:8080/api/docs
+- **Documentation ReDoc (local)** : http://localhost:8080/api/redoc
+- **Health check (local)** : http://localhost:8080/health
 
 ---
 

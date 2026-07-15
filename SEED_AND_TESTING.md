@@ -14,6 +14,11 @@ Le script [scripts/seed_demo.py](scripts/seed_demo.py) crée un utilisateur de t
 
 Le script [scripts/test_non_chat_endpoints.py](scripts/test_non_chat_endpoints.py) interroge l’instance distante et vérifie les endpoints non-chat principaux.
 
+Par défaut, il cible l’URL de production :
+- https://api.mpanolontsaina-ia.duckdns.org
+
+Vous pouvez aussi modifier la variable `BASE_URL` dans le script pour tester une instance locale.
+
 ### Exécution
 
 ```bash

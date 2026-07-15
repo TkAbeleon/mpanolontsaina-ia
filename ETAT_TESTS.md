@@ -5,6 +5,8 @@
 
 ## Résultats des tests effectués
 
+URL de production testée : https://api.mpanolontsaina-ia.duckdns.org
+
 ### 1. Santé de l’API
 - Endpoint : `/health`
 - Résultat : **200 OK**

@@ -82,9 +82,13 @@ echo    .venv\Scripts\activate.bat
 echo    uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 echo.
 echo Documentation API disponible sur :
-echo    http://localhost:8080/api/docs
-echo    http://localhost:8080/api/redoc
+echo    Production : https://api.mpanolontsaina-ia.duckdns.org/api/docs
+echo    Local : http://localhost:8080/api/docs
+echo    Production : https://api.mpanolontsaina-ia.duckdns.org/api/redoc
+echo    Local : http://localhost:8080/api/redoc
 echo.
-echo Health check : http://localhost:8080/health
+echo Health check :
+echo    Production : https://api.mpanolontsaina-ia.duckdns.org/health
+echo    Local : http://localhost:8080/health
 echo ==========================================
 pause
