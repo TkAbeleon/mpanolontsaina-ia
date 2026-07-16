@@ -63,6 +63,75 @@ def _build_source_refs(retrieved_context: Optional[List[dict]]) -> tuple[List[So
 
 
 # =============================================================================
+# Utilitaire de routage du backend de chat
+# =============================================================================
+async def _run_chat_backend(
+    *,
+    message: str,
+    history: Optional[list] = None,
+    language: Optional[str] = None,
+    session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+) -> tuple[str, Optional[str], List[SourceReference], str]:
+    """Exécute la requête de chat via n8n ou via le pipeline local."""
+    if settings.CHAT_BACKEND == "n8n":
+        if not settings.N8N_WEBHOOK_URL:
+            raise ValueError(
+                "N8N_WEBHOOK_URL non configurée. Défini CHAT_BACKEND=local ou renseignez N8N_WEBHOOK_URL."
+            )
+
+        n8n_client = N8nClient(
+            webhook_url=settings.N8N_WEBHOOK_URL,
+            timeout=settings.N8N_REQUEST_TIMEOUT,
+            auto_retry=settings.N8N_AUTO_RETRY,
+        )
+
+        n8n_response = await n8n_client.send_chat_request(
+            message=message,
+            language=language,
+            session_id=session_id,
+            history=history,
+        )
+
+        answer_text = n8n_response.get("output_message", "")
+        agent_source = n8n_response.get("agent_source")
+        sources_data = n8n_response.get("sources", [])
+
+        source_refs = [
+            SourceReference(
+                code=src.get("code"),
+                article=src.get("article"),
+                excerpt_summary=src.get("excerpt_summary"),
+            )
+            for src in sources_data
+            if isinstance(src, dict)
+        ]
+
+        return answer_text, agent_source, source_refs, language or "fr"
+
+    initial_state: AgentState = {
+        "question": message,
+        "history": history or [],
+        "user_id": user_id,
+        "language": language,
+        "domain": None,
+        "retrieved_context": None,
+        "final_answer": None,
+        "agent_source": None,
+    }
+
+    final_state = await compiled_graph.ainvoke(initial_state)
+    source_refs, _ = _build_source_refs(final_state.get("retrieved_context"))
+
+    return (
+        final_state.get("final_answer") or "",
+        final_state.get("agent_source"),
+        source_refs,
+        final_state.get("language", "fr"),
+    )
+
+
+# =============================================================================
 # POST /api/v1/chat/visitor
 # =============================================================================
 @router.post(
@@ -104,91 +173,30 @@ async def visitor_chat(request: VisitorChatRequest):
     )
 
     try:
-        if settings.CHAT_BACKEND == "n8n":
-            # ===== Route N8N =====
-            if not settings.N8N_WEBHOOK_URL:
-                raise ValueError(
-                    "N8N_WEBHOOK_URL non configurée. Défini CHAT_BACKEND=local ou renseignez N8N_WEBHOOK_URL."
-                )
+        answer_text, agent_source, source_refs, lang = await _run_chat_backend(
+            message=request.message.strip(),
+            history=request.history,
+            language=request.language,
+            session_id=str(session_id),
+            user_id=None,
+        )
 
-            n8n_client = N8nClient(
-                webhook_url=settings.N8N_WEBHOOK_URL,
-                timeout=settings.N8N_REQUEST_TIMEOUT,
-                auto_retry=settings.N8N_AUTO_RETRY,
-            )
+        response_data = VisitorChatResponse(
+            session_id=session_id,
+            language=lang,
+            answer=answer_text,
+            agent_source=agent_source,
+            sources=source_refs or None,
+            persisted=False,
+        )
 
-            n8n_response = await n8n_client.send_chat_request(
-                message=request.message.strip(),
-                language=request.language,
-                session_id=str(session_id),
-                history=request.history,
-            )
-
-            # Extrait la réponse n8n
-            answer_text = n8n_response.get("output_message", "")
-            agent_source = n8n_response.get("agent_source")
-            sources_data = n8n_response.get("sources", [])
-
-            # Construit les SourceReference
-            source_refs = [
-                SourceReference(
-                    code=src.get("code"),
-                    article=src.get("article"),
-                    excerpt_summary=src.get("excerpt_summary"),
-                )
-                for src in sources_data
-                if isinstance(src, dict)
-            ]
-
-            response_data = VisitorChatResponse(
-                session_id=session_id,
-                language=request.language or "fr",
-                answer=answer_text,
-                agent_source=agent_source,
-                sources=source_refs or None,
-                persisted=False,
-            )
-
-            logger.info(
-                "[visitor_chat] n8n ✓ session=%s lang=%s answer_len=%d",
-                session_id,
-                request.language or "fr",
-                len(answer_text),
-            )
-
-        else:
-            # ===== Route LOCAL (Pipeline LangGraph) =====
-            initial_state: AgentState = {
-                "question": request.message.strip(),
-                "history": request.history or [],
-                "user_id": None,
-                "language": request.language,
-                "domain": None,
-                "retrieved_context": None,
-                "final_answer": None,
-                "agent_source": None,
-            }
-
-            final_state = await compiled_graph.ainvoke(initial_state)
-
-            source_refs, _ = _build_source_refs(final_state.get("retrieved_context"))
-
-            response_data = VisitorChatResponse(
-                session_id=session_id,
-                language=final_state.get("language", "fr"),
-                answer=final_state.get("final_answer") or "",
-                agent_source=final_state.get("agent_source"),
-                sources=source_refs,
-                persisted=False,
-            )
-
-            logger.info(
-                "[visitor_chat] local ✓ session=%s agent=%s lang=%s answer_len=%d",
-                session_id,
-                final_state.get("agent_source"),
-                final_state.get("language"),
-                len(response_data.answer),
-            )
+        logger.info(
+            "[visitor_chat] backend=%s ✓ session=%s lang=%s answer_len=%d",
+            settings.CHAT_BACKEND,
+            session_id,
+            lang,
+            len(answer_text),
+        )
 
         return build_success_response(response_data.model_dump()).model_dump()
 
@@ -419,23 +427,15 @@ async def send_message(
     )
 
     try:
-        initial_state: AgentState = {
-            "question": request.message.strip(),
-            "history": history_list,
-            "user_id": str(current_user.id),
-            "language": current_user.preferred_language,
-            "domain": None,
-            "retrieved_context": None,
-            "final_answer": None,
-            "agent_source": None,
-        }
-
-        final_state = await compiled_graph.ainvoke(initial_state)
-
-        source_refs, sources_data = _build_source_refs(final_state.get("retrieved_context"))
+        answer_text, agent_source, source_refs, lang = await _run_chat_backend(
+            message=request.message.strip(),
+            history=history_list,
+            language=current_user.preferred_language,
+            session_id=str(conversation_id),
+            user_id=str(current_user.id),
+        )
 
         now = datetime.now(timezone.utc)
-        lang = final_state.get("language", "fr")
 
         # Persistance : message utilisateur
         user_msg = Message(
@@ -451,9 +451,16 @@ async def send_message(
         assistant_msg = Message(
             conversation_id=conversation_id,
             role="assistant",
-            content=final_state.get("final_answer") or "",
-            agent_source=final_state.get("agent_source"),
-            sources=sources_data if sources_data else None,
+            content=answer_text,
+            agent_source=agent_source,
+            sources=[
+                {
+                    "code": src.code,
+                    "article": src.article,
+                    "excerpt_summary": src.excerpt_summary,
+                }
+                for src in source_refs
+            ] if source_refs else None,
             language=lang,
             created_at=now,
         )
@@ -474,9 +481,10 @@ async def send_message(
         db.refresh(assistant_msg)
 
         logger.info(
-            "[send_message] conv=%s → agent=%s lang=%s answer_len=%d",
+            "[send_message] conv=%s backend=%s → agent=%s lang=%s answer_len=%d",
             conversation_id,
-            final_state.get("agent_source"),
+            settings.CHAT_BACKEND,
+            agent_source,
             lang,
             len(assistant_msg.content),
         )

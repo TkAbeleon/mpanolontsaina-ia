@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Generator
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -243,6 +243,38 @@ class TestLLMProviderFactory:
 # --------------------------------------------------------------------------- #
 # Tests — Chargement des paramètres critiques (Pydantic-Settings)
 # --------------------------------------------------------------------------- #
+
+class TestChatBackendRouting:
+    """Vérifie que la route authentifiée suit aussi le backend configuré."""
+
+    @pytest.mark.asyncio
+    async def test_run_chat_backend_uses_n8n_when_configured(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from app.routers import chat as chat_router  # noqa: PLC0415
+
+        monkeypatch.setattr(chat_router.settings, "CHAT_BACKEND", "n8n")
+        monkeypatch.setattr(chat_router.settings, "N8N_WEBHOOK_URL", "https://example.test/webhook")
+        monkeypatch.setattr(chat_router.settings, "N8N_REQUEST_TIMEOUT", 10)
+        monkeypatch.setattr(chat_router.settings, "N8N_AUTO_RETRY", False)
+
+        fake_n8n_client = MagicMock()
+        fake_n8n_client.send_chat_request = AsyncMock(
+            return_value={"output_message": "réponse n8n", "agent_source": "n8n", "sources": []}
+        )
+
+        with patch.object(chat_router, "N8nClient", return_value=fake_n8n_client):
+            answer, agent_source, source_refs, lang = await chat_router._run_chat_backend(
+                message="bonjour",
+                history=[{"role": "user", "content": "bonjour"}],
+                language="fr",
+                session_id="abc",
+                user_id="user-1",
+            )
+
+        assert answer == "réponse n8n"
+        assert agent_source == "n8n"
+        assert source_refs == []
+        assert lang == "fr"
+
 
 class TestSettings:
     """
