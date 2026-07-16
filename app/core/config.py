@@ -9,15 +9,15 @@ ne sont obligatoires que lorsque ce fournisseur est sélectionné
 """
 
 from pathlib import Path
-from typing import Literal, Optional
+from typing import ClassVar, Literal, Optional
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    root_dir = Path(__file__).resolve().parent.parent
-    model_config = SettingsConfigDict(
+    root_dir: ClassVar[Path] = Path(__file__).resolve().parents[2]
+    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
         env_file=str(root_dir / ".env"),
         env_file_encoding="utf-8",
         case_sensitive=False,
