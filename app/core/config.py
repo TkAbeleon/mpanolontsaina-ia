@@ -8,6 +8,7 @@ ne sont obligatoires que lorsque ce fournisseur est sélectionné
  LLM_PROVIDER=vertex  → GCP_PROJECT_ID requise).
 """
 
+from pathlib import Path
 from typing import Literal, Optional
 
 from pydantic import model_validator
@@ -15,8 +16,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    root_dir = Path(__file__).resolve().parent.parent
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(root_dir / ".env"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",

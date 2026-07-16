@@ -62,9 +62,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         create_all_tables()
 
     logger.info(
-        "=== Assistant Juridique Malgache démarré | provider=%s | debug=%s ===",
+        "=== Assistant Juridique Malgache démarré | provider=%s | backend=%s | debug=%s | n8n_configured=%s ===",
         settings.LLM_PROVIDER,
+        settings.CHAT_BACKEND,
         settings.DEBUG,
+        bool(settings.N8N_WEBHOOK_URL),
     )
 
     yield
@@ -172,6 +174,8 @@ async def health_check() -> JSONResponse:
         "timestamp": datetime.now(tz=timezone.utc).isoformat(),
         "version": settings.APP_VERSION,
         "llm_provider": settings.LLM_PROVIDER,
+        "chat_backend": settings.CHAT_BACKEND,
+        "n8n_webhook_configured": bool(settings.N8N_WEBHOOK_URL),
         "dependencies": {
             "postgresql": "ok" if db_healthy else "unreachable",
         },
