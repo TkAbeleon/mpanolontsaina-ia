@@ -12,9 +12,11 @@ from sqlalchemy.orm import Session
 
 from app.agents.graph import compiled_graph
 from app.agents.nodes import AgentState
+from app.core.config import settings
 from app.core.dependencies import get_current_user
 from app.db.database import get_db
 from app.db.models import Conversation, Message, User
+from app.providers.n8n_client import N8nClient
 from app.rag.chroma_client import COLLECTIONS, add_documents_to_collection, get_collection_info
 from app.schemas.chat import (
     ConversationResponse,
@@ -71,13 +73,17 @@ def _build_source_refs(retrieved_context: Optional[List[dict]]) -> tuple[List[So
         200: {"description": "Réponse générée avec succès"},
         400: {"description": "Message vide"},
         429: {"description": "Trop de requêtes"},
-        500: {"description": "Erreur interne du pipeline d'agents"},
+        500: {"description": "Erreur interne du pipeline d'agents ou n8n"},
     },
 )
 async def visitor_chat(request: VisitorChatRequest):
     """
     Chat éphémère pour les visiteurs (pas d'authentification requise).
     Aucune persistance en PostgreSQL.
+    
+    Routage :
+    - Si CHAT_BACKEND=n8n : interroge le webhook n8n (défaut)
+    - Si CHAT_BACKEND=local : utilise le pipeline LangGraph local
     """
     if not request.message or not request.message.strip():
         raise HTTPException(
@@ -89,44 +95,111 @@ async def visitor_chat(request: VisitorChatRequest):
         )
 
     session_id = request.session_id or uuid4()
-    logger.info("[visitor_chat] session=%s lang=%s msg=%.80s", session_id, request.language, request.message)
+    logger.info(
+        "[visitor_chat] session=%s backend=%s lang=%s msg=%.80s",
+        session_id,
+        settings.CHAT_BACKEND,
+        request.language,
+        request.message,
+    )
 
     try:
-        initial_state: AgentState = {
-            "question": request.message.strip(),
-            "history": request.history or [],
-            "user_id": None,
-            "language": request.language,
-            "domain": None,
-            "retrieved_context": None,
-            "final_answer": None,
-            "agent_source": None,
-        }
+        if settings.CHAT_BACKEND == "n8n":
+            # ===== Route N8N =====
+            if not settings.N8N_WEBHOOK_URL:
+                raise ValueError(
+                    "N8N_WEBHOOK_URL non configurée. Défini CHAT_BACKEND=local ou renseignez N8N_WEBHOOK_URL."
+                )
 
-        final_state = await compiled_graph.ainvoke(initial_state)
+            n8n_client = N8nClient(
+                webhook_url=settings.N8N_WEBHOOK_URL,
+                timeout=settings.N8N_REQUEST_TIMEOUT,
+                auto_retry=settings.N8N_AUTO_RETRY,
+            )
 
-        source_refs, _ = _build_source_refs(final_state.get("retrieved_context"))
+            n8n_response = await n8n_client.send_chat_request(
+                message=request.message.strip(),
+                language=request.language,
+                session_id=str(session_id),
+                history=request.history,
+            )
 
-        response_data = VisitorChatResponse(
-            session_id=session_id,
-            language=final_state.get("language", "fr"),
-            answer=final_state.get("final_answer") or "",
-            agent_source=final_state.get("agent_source"),
-            sources=source_refs,
-            persisted=False,
-        )
+            # Extrait la réponse n8n
+            answer_text = n8n_response.get("output_message", "")
+            agent_source = n8n_response.get("agent_source")
+            sources_data = n8n_response.get("sources", [])
 
-        logger.info(
-            "[visitor_chat] session=%s → agent=%s lang=%s answer_len=%d",
-            session_id,
-            final_state.get("agent_source"),
-            final_state.get("language"),
-            len(response_data.answer),
-        )
+            # Construit les SourceReference
+            source_refs = [
+                SourceReference(
+                    code=src.get("code"),
+                    article=src.get("article"),
+                    excerpt_summary=src.get("excerpt_summary"),
+                )
+                for src in sources_data
+                if isinstance(src, dict)
+            ]
+
+            response_data = VisitorChatResponse(
+                session_id=session_id,
+                language=request.language or "fr",
+                answer=answer_text,
+                agent_source=agent_source,
+                sources=source_refs or None,
+                persisted=False,
+            )
+
+            logger.info(
+                "[visitor_chat] n8n ✓ session=%s lang=%s answer_len=%d",
+                session_id,
+                request.language or "fr",
+                len(answer_text),
+            )
+
+        else:
+            # ===== Route LOCAL (Pipeline LangGraph) =====
+            initial_state: AgentState = {
+                "question": request.message.strip(),
+                "history": request.history or [],
+                "user_id": None,
+                "language": request.language,
+                "domain": None,
+                "retrieved_context": None,
+                "final_answer": None,
+                "agent_source": None,
+            }
+
+            final_state = await compiled_graph.ainvoke(initial_state)
+
+            source_refs, _ = _build_source_refs(final_state.get("retrieved_context"))
+
+            response_data = VisitorChatResponse(
+                session_id=session_id,
+                language=final_state.get("language", "fr"),
+                answer=final_state.get("final_answer") or "",
+                agent_source=final_state.get("agent_source"),
+                sources=source_refs,
+                persisted=False,
+            )
+
+            logger.info(
+                "[visitor_chat] local ✓ session=%s agent=%s lang=%s answer_len=%d",
+                session_id,
+                final_state.get("agent_source"),
+                final_state.get("language"),
+                len(response_data.answer),
+            )
+
         return build_success_response(response_data.model_dump()).model_dump()
 
+    except HTTPException:
+        raise
     except Exception as exc:
-        logger.exception("[visitor_chat] ERREUR pipeline agents : %s", exc)
+        logger.exception(
+            "[visitor_chat] ✗ ERREUR (%s) : %s",
+            settings.CHAT_BACKEND,
+            exc,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=build_error_response(

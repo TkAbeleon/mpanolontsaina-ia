@@ -70,6 +70,14 @@ class Settings(BaseSettings):
     DEBUG: bool = False
 
     # ------------------------------------------------------------------ #
+    # N8N Webhook Integration (chat backend switch)
+    # ------------------------------------------------------------------ #
+    CHAT_BACKEND: Literal["n8n", "local"] = "n8n"
+    N8N_WEBHOOK_URL: Optional[str] = None
+    N8N_REQUEST_TIMEOUT: int = 30
+    N8N_AUTO_RETRY: bool = True
+
+    # ------------------------------------------------------------------ #
     # Validation conditionnelle des secrets par fournisseur
     # ------------------------------------------------------------------ #
     @model_validator(mode="after")

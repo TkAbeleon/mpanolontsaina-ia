@@ -69,7 +69,7 @@ async def language_detection_node(state: AgentState) -> AgentState:
             max_tokens=10,
         )
         raw_lang = raw_lang.strip().lower()
-        
+
         if "mg" in raw_lang or "malagasy" in raw_lang:
             detected = "mg"
         elif "en" in raw_lang or "english" in raw_lang:
@@ -78,7 +78,7 @@ async def language_detection_node(state: AgentState) -> AgentState:
             detected = "fr"
         else:
             detected = state.get("language") or "fr"
-            
+
     except Exception as exc:
         logger.warning("Échec détection de langue : %s — repli sur le paramètre fourni", exc)
         detected = state.get("language") or "fr"
@@ -119,7 +119,7 @@ async def supervisor_node(state: AgentState) -> AgentState:
             max_tokens=50,
         )
         raw = raw.strip().lower()
-        
+
         # Heuristique robuste basée sur les mots-clés plutôt qu'une stricte égalité
         if "travail" in raw or "labor" in raw:
             domain = "droit_travail"

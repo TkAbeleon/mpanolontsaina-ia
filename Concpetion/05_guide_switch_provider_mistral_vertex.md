@@ -52,6 +52,7 @@ from abc import ABC, abstractmethod
 from typing import List
 
 
+
 class LLMProvider(ABC):
     """Contrat commun que doit respecter tout fournisseur LLM (Vertex AI, Mistral, etc.)."""
 
@@ -81,6 +82,7 @@ class LLMProvider(ABC):
 import os
 from mistralai import Mistral
 from core.llm.base import LLMProvider
+
 
 
 class MistralProvider(LLMProvider):
@@ -126,6 +128,7 @@ from google import genai
 from core.llm.base import LLMProvider
 
 
+
 class VertexAIProvider(LLMProvider):
     def __init__(self):
         self._client = genai.Client(
@@ -164,6 +167,7 @@ class VertexAIProvider(LLMProvider):
 import os
 from functools import lru_cache
 from core.llm.base import LLMProvider
+
 
 
 @lru_cache(maxsize=1)
@@ -300,6 +304,7 @@ from chromadb import Documents, EmbeddingFunction, Embeddings
 from core.llm.factory import get_llm_provider
 
 
+
 class SwitchableEmbeddingFunction(EmbeddingFunction):
     """Délègue la génération d'embeddings au fournisseur actif (Mistral ou Vertex AI)."""
 
@@ -328,13 +333,13 @@ collection = chroma_client.get_or_create_collection(
 
 ## 9. Limites connues de Mistral pour ce cas d'usage (à garder en tête en dev)
 
-| Aspect | Mistral (dev) | Vertex AI / Gemini (cible prod) |
-|---|---|---|
-| Français | Très bon (langue forte de Mistral, éditeur français) | Très bon |
-| Anglais | Très bon | Très bon |
-| **Malagasy** | Support **plus faible et moins prévisible** (langue peu représentée dans le corpus d'entraînement) — à valider empiriquement avec le golden dataset (cf. `04_guide_implementation_vertex_ai.md` §5) | Meilleur support relatif du malagasy, à re-valider également mais généralement plus robuste sur les langues à faibles ressources |
-| Embeddings multilingues dédiés | `mistral-embed` (généraliste, pas spécifiquement optimisé multilingue) | `text-multilingual-embedding-002` (conçu pour le multilingue) |
-| Disponibilité | Immédiate | En attente de validation de l'accès GCP |
+| Aspect                           | Mistral (dev)                                                                                                                                                                                                     | Vertex AI / Gemini (cible prod)                                                                                                       |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Français                        | Très bon (langue forte de Mistral, éditeur français)                                                                                                                                                           | Très bon                                                                                                                             |
+| Anglais                          | Très bon                                                                                                                                                                                                         | Très bon                                                                                                                             |
+| **Malagasy**               | Support**plus faible et moins prévisible** (langue peu représentée dans le corpus d'entraînement) — à valider empiriquement avec le golden dataset (cf. `04_guide_implementation_vertex_ai.md` §5) | Meilleur support relatif du malagasy, à re-valider également mais généralement plus robuste sur les langues à faibles ressources |
+| Embeddings multilingues dédiés | `mistral-embed` (généraliste, pas spécifiquement optimisé multilingue)                                                                                                                                      | `text-multilingual-embedding-002` (conçu pour le multilingue)                                                                      |
+| Disponibilité                   | Immédiate                                                                                                                                                                                                        | En attente de validation de l'accès GCP                                                                                              |
 
 **Recommandation** : pendant la phase de développement sous Mistral, prévoir un jeu de tests spécifique aux questions en malagasy et documenter les écarts de qualité observés. Ces écarts sont **attendus** et ne doivent pas être interprétés comme un bug applicatif — ils disparaîtront ou s'atténueront lors de la bascule vers Vertex AI via le simple changement de `LLM_PROVIDER=vertex` dans le `.env`.
 
@@ -348,3 +353,4 @@ collection = chroma_client.get_or_create_collection(
 4. **Ré-indexer** les collections ChromaDB avec le nouvel embedding (les vecteurs Mistral et Vertex AI ne sont pas interchangeables — voir §8).
 5. Rejouer le golden dataset multilingue (mg/fr/en) pour valider la qualité des réponses avant mise en production définitive.
 6. Aucune modification du code des nœuds LangGraph, des contrôleurs FastAPI ni des contrats d'API n'est nécessaire : l'abstraction `LLMProvider` absorbe entièrement le changement de fournisseur.
+
